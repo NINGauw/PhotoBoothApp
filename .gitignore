@@ -1,0 +1,8 @@
+node_modules/
+client/node_modules/
+dist/
+client/dist/
+uploads/
+photobooth.db
+.env
+*.log

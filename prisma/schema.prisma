@@ -1,0 +1,16 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:../photobooth.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  composed  String?
+  filter    String   @default("none")
+  printed   Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
