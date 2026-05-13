@@ -812,6 +812,7 @@ export default function App() {
     if (!selectedFrame) return
     setIsUploading(true)
     setUploadError('')
+    setDownloadUrl('')
     try {
       const composed = await composeImage(
         selectedFrame,
@@ -830,13 +831,24 @@ export default function App() {
           sessionId: Date.now().toString(),
         }),
       })
-      if (!response.ok) throw new Error('Upload failed')
-      const data = (await response.json()) as { downloadUrl?: string }
-      setDownloadUrl(data.downloadUrl ?? '')
+      const data = (await response.json()) as {
+        downloadUrl?: string
+        publicUrl?: string
+        error?: string
+      }
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed')
+      }
+      const qrTarget = data.downloadUrl || data.publicUrl || ''
+      setDownloadUrl(qrTarget)
       setIsUploading(false)
       setScreen('printing')
-    } catch {
-      setUploadError('Could not upload photo. Check your connection.')
+    } catch (e) {
+      setUploadError(
+        e instanceof Error && e.message
+          ? e.message
+          : 'Could not upload photo. Check your connection.',
+      )
       setIsUploading(false)
     }
   }

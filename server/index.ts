@@ -5,17 +5,18 @@ import cors from 'cors'
 import { v2 as cloudinary } from 'cloudinary'
 import * as dotenv from 'dotenv'
 
-dotenv.config()
+const root = path.join(__dirname, '..')
+dotenv.config({ path: path.join(root, '.env') })
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true,
 })
 
 const app = express()
 const PORT = 3001
-const root = path.join(__dirname, '..')
 const uploadsDir = path.join(root, 'uploads')
 
 app.use(cors())
@@ -87,6 +88,7 @@ app.post('/api/upload', async (req, res) => {
       resource_type: 'image',
       flags: 'attachment',
       format: 'jpg',
+      secure: true,
     })
     res.json({
       success: true,
