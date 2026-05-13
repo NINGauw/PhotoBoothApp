@@ -8,13 +8,14 @@ import {
 import {
   ArrowLeft,
   Camera,
+  Cog,
   Download,
   FlipHorizontal,
   Grid3x3,
+  Lock,
   Play,
   Printer,
   RotateCcw,
-  Settings,
   Smile,
   Sparkles,
   X,
@@ -22,6 +23,13 @@ import {
 
 const CORAL = '#FF6B6B'
 const BG = '#FFF5F7'
+
+/** Print / compose canvas: 100mm × 148mm @ 300dpi */
+const CANVAS_W = 1181
+const CANVAS_H = 1748
+/** Twin-strip layouts: each strip width; second strip x-offset */
+const STRIP_W = 590
+const STRIP_DUP_OFFSET = 591
 
 /**
  * Enumerate devices first and prefer Camo Studio virtual camera.
@@ -84,12 +92,12 @@ const FRAMES: Frame[] = [
     dup: true,
     color: '#FFB6C1',
     slots: [
-      { x: 40, y: 55, w: 520, h: 335 },
-      { x: 40, y: 410, w: 520, h: 335 },
-      { x: 40, y: 765, w: 520, h: 335 },
-      { x: 40, y: 1120, w: 520, h: 335 },
+      { x: 30, y: 30, w: 530, h: 399 },
+      { x: 30, y: 441, w: 530, h: 399 },
+      { x: 30, y: 852, w: 530, h: 399 },
+      { x: 30, y: 1263, w: 530, h: 400 },
     ],
-    brandY: 1490,
+    brandY: 1663,
   },
   {
     id: 'single',
@@ -98,8 +106,8 @@ const FRAMES: Frame[] = [
     photos: 1,
     dup: false,
     color: '#7EC8E3',
-    slots: [{ x: 60, y: 60, w: 1080, h: 1480 }],
-    brandY: 1580,
+    slots: [{ x: 30, y: 30, w: 1121, h: 1633 }],
+    brandY: 1663,
   },
   {
     id: 'grid4',
@@ -109,12 +117,12 @@ const FRAMES: Frame[] = [
     dup: false,
     color: '#B8A9E8',
     slots: [
-      { x: 50, y: 50, w: 540, h: 700 },
-      { x: 610, y: 50, w: 540, h: 700 },
-      { x: 50, y: 790, w: 540, h: 700 },
-      { x: 610, y: 790, w: 540, h: 700 },
+      { x: 30, y: 30, w: 554, h: 811 },
+      { x: 596, y: 30, w: 554, h: 811 },
+      { x: 30, y: 853, w: 554, h: 810 },
+      { x: 596, y: 853, w: 554, h: 810 },
     ],
-    brandY: 1530,
+    brandY: 1663,
   },
   {
     id: 'strip3',
@@ -124,11 +132,11 @@ const FRAMES: Frame[] = [
     dup: true,
     color: '#FFD700',
     slots: [
-      { x: 40, y: 55, w: 520, h: 420 },
-      { x: 40, y: 505, w: 520, h: 420 },
-      { x: 40, y: 955, w: 520, h: 420 },
+      { x: 30, y: 30, w: 530, h: 536 },
+      { x: 30, y: 578, w: 530, h: 536 },
+      { x: 30, y: 1126, w: 530, h: 537 },
     ],
-    brandY: 1410,
+    brandY: 1663,
   },
 ]
 
@@ -315,8 +323,8 @@ async function composeImage(
   eventName: string,
   includeStickers = true,
 ): Promise<string> {
-  const CW = 1200
-  const CH = 1800
+  const CW = CANVAS_W
+  const CH = CANVAS_H
   const canvas = document.createElement('canvas')
   canvas.width = CW
   canvas.height = CH
@@ -325,7 +333,7 @@ async function composeImage(
   ctx.fillStyle = '#FFFFFF'
   ctx.fillRect(0, 0, CW, CH)
 
-  const stripW = frame.dup ? 600 : 1200
+  const stripW = frame.dup ? STRIP_W : CANVAS_W
   const drawStrip = (ox: number) => {
     ctx.strokeStyle = frame.color
     ctx.lineWidth = 5
@@ -339,19 +347,19 @@ async function composeImage(
     })
 
     ctx.fillStyle = frame.color
-    ctx.font = 'bold 34px system-ui'
+    ctx.font = 'bold 28px system-ui'
     ctx.textAlign = 'center'
-    ctx.fillText(eventName, ox + stripW / 2, frame.brandY + 30)
-    ctx.font = '20px system-ui'
+    ctx.fillText(eventName, ox + stripW / 2, frame.brandY + 28)
+    ctx.font = '18px system-ui'
     ctx.fillStyle = '#AAA'
     ctx.fillText(
       new Date().toLocaleDateString(),
       ox + stripW / 2,
-      frame.brandY + 60,
+      frame.brandY + 52,
     )
   }
   drawStrip(0)
-  if (frame.dup) drawStrip(600)
+  if (frame.dup) drawStrip(STRIP_DUP_OFFSET)
 
   const loadImg = (src: string) =>
     new Promise<HTMLImageElement>((res, rej) => {
@@ -400,7 +408,7 @@ async function composeImage(
     })
   }
   drawSlots(0)
-  if (frame.dup) drawSlots(600)
+  if (frame.dup) drawSlots(STRIP_DUP_OFFSET)
 
   if (includeStickers) {
     stickers.forEach((st) => {
@@ -408,7 +416,7 @@ async function composeImage(
       ctx.font = `${st.size * 2}px serif`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillText(st.emoji, st.x * (CW / 800), st.y * (CH / 600))
+      ctx.fillText(st.emoji, st.x, st.y)
     })
   }
 
@@ -511,6 +519,8 @@ export default function App() {
   const [activeCameraLabel, setActiveCameraLabel] = useState<string>('Camera')
   const [autoRunning, setAutoRunning] = useState(false)
   const [autoDone, setAutoDone] = useState(false)
+  const [allowRetake, setAllowRetake] = useState(true)
+  const [boothSettingsOpen, setBoothSettingsOpen] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -872,15 +882,15 @@ export default function App() {
       const el = stickerOverlayRef.current
       if (!d || !el) return
       const rect = el.getBoundingClientRect()
-      const dx = ((e.clientX - d.startX) / rect.width) * 800
-      const dy = ((e.clientY - d.startY) / rect.height) * 600
+      const dx = ((e.clientX - d.startX) / rect.width) * CANVAS_W
+      const dy = ((e.clientY - d.startY) / rect.height) * CANVAS_H
       setStickers((prev) =>
         prev.map((s) =>
           s.id === d.id
             ? {
                 ...s,
-                x: Math.min(780, Math.max(20, d.origX + dx)),
-                y: Math.min(580, Math.max(20, d.origY + dy)),
+                x: Math.min(CANVAS_W - 20, Math.max(20, d.origX + dx)),
+                y: Math.min(CANVAS_H - 20, Math.max(20, d.origY + dy)),
               }
             : s,
         ),
@@ -921,11 +931,74 @@ export default function App() {
           <button
             type="button"
             aria-label="Admin"
-            className="absolute right-4 top-4 z-20 opacity-10 transition-opacity hover:opacity-70"
+            className="absolute right-4 top-[4.5rem] z-20 opacity-10 transition-opacity hover:opacity-70"
             onClick={() => setScreen('admin')}
           >
-            <Settings className="h-8 w-8 text-gray-700" />
+            <Lock className="h-8 w-8 text-gray-700" />
           </button>
+          <button
+            type="button"
+            className="absolute right-4 top-4 z-20 flex min-h-[48px] items-center gap-2 rounded-full border border-gray-200/80 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 shadow-md transition hover:bg-gray-50 active:scale-[0.98]"
+            onClick={() => setBoothSettingsOpen(true)}
+          >
+            <Cog className="h-5 w-5 shrink-0 text-gray-700" />
+            Settings
+          </button>
+          {boothSettingsOpen ? (
+            <div
+              className="absolute inset-0 z-30 flex items-center justify-center bg-black/35 p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="booth-settings-title"
+              onClick={() => setBoothSettingsOpen(false)}
+            >
+              <div
+                className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <h2
+                    id="booth-settings-title"
+                    className="flex items-center gap-2 text-lg font-bold text-gray-900"
+                  >
+                    <Cog className="h-5 w-5 text-gray-600" />
+                    Booth Settings
+                  </h2>
+                  <button
+                    type="button"
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+                    aria-label="Close settings"
+                    onClick={() => setBoothSettingsOpen(false)}
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="rounded-xl border border-gray-100 bg-gray-50/80 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="font-semibold text-gray-900">
+                        Allow Retake
+                      </div>
+                      <p className="mt-1 text-sm text-gray-600">
+                        Let guests retake individual photos after capture
+                      </p>
+                    </div>
+                    <label className="flex shrink-0 cursor-pointer items-center gap-2">
+                      <span className="text-xs font-medium text-gray-500">
+                        {allowRetake ? 'ON' : 'OFF'}
+                      </span>
+                      <input
+                        type="checkbox"
+                        className="h-5 w-5 rounded border-gray-300 text-[#FF6B6B] focus:ring-[#FF6B6B]"
+                        checked={allowRetake}
+                        onChange={(e) => setAllowRetake(e.target.checked)}
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
           {attractFloaters.map((f, i) => (
             <span
               key={i}
@@ -1202,7 +1275,7 @@ export default function App() {
           <div className="flex min-w-0 flex-1 flex-col gap-4 p-4">
             <div
               className="relative mx-auto w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
-              style={{ aspectRatio: '2 / 3', maxHeight: '82vh' }}
+              style={{ aspectRatio: '1181/1748', maxHeight: '82vh' }}
             >
               {composedDataUrl ? (
                 <img
@@ -1224,8 +1297,8 @@ export default function App() {
                     key={st.id}
                     className="pointer-events-auto absolute"
                     style={{
-                      left: `${(st.x / 800) * 100}%`,
-                      top: `${(st.y / 600) * 100}%`,
+                      left: `${(st.x / CANVAS_W) * 100}%`,
+                      top: `${(st.y / CANVAS_H) * 100}%`,
                       transform: 'translate(-50%, -50%)',
                       fontSize: `${st.size}px`,
                       lineHeight: 1,
@@ -1288,29 +1361,31 @@ export default function App() {
                 <div className="text-sm font-bold tracking-wide text-gray-700">
                   YOUR PHOTOS
                 </div>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 rounded-xl bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700"
-                  onClick={() => {
-                    // Retake uses active slot if one is selected; otherwise retake the first slot.
-                    const slotIdx = activeSlot ?? 0
-                    const bankIdx = slotAssignment[slotIdx] ?? 0
-                    setPhotoIdx(bankIdx)
-                    setRetakeMode(true)
-                    setAllCaptured(false)
-                    setAutoRunning(false)
-                    setAutoDone(false)
-                    setCountdown(0)
-                    if (countdownRef.current) {
-                      clearInterval(countdownRef.current)
-                      countdownRef.current = null
-                    }
-                    setScreen('camera')
-                  }}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  Retake
-                </button>
+                {allowRetake ? (
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 rounded-xl bg-gray-100 px-3 py-2 text-sm font-semibold text-gray-700"
+                    onClick={() => {
+                      // Retake uses active slot if one is selected; otherwise retake the first slot.
+                      const slotIdx = activeSlot ?? 0
+                      const bankIdx = slotAssignment[slotIdx] ?? 0
+                      setPhotoIdx(bankIdx)
+                      setRetakeMode(true)
+                      setAllCaptured(false)
+                      setAutoRunning(false)
+                      setAutoDone(false)
+                      setCountdown(0)
+                      if (countdownRef.current) {
+                        clearInterval(countdownRef.current)
+                        countdownRef.current = null
+                      }
+                      setScreen('camera')
+                    }}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Retake
+                  </button>
+                ) : null}
               </div>
 
               <div className="mb-5 flex gap-2 overflow-x-auto pb-2">
@@ -1549,8 +1624,14 @@ export default function App() {
                             {
                               id: crypto.randomUUID(),
                               emoji: em,
-                              x: 380 + Math.random() * 80,
-                              y: 280 + Math.random() * 80,
+                              x:
+                                CANVAS_W / 2 -
+                                40 +
+                                Math.random() * 80,
+                              y:
+                                CANVAS_H / 2 -
+                                40 +
+                                Math.random() * 80,
                               size: 36,
                             },
                           ])
