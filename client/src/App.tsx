@@ -20,6 +20,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 
 const CORAL = '#FF6B6B'
 const BG = '#FFF5F7'
@@ -510,7 +511,9 @@ export default function App() {
   const [reviewTab, setReviewTab] = useState<ReviewTab>('filters')
   const [composedDataUrl, setComposedDataUrl] = useState<string>('')
   const [printProg, setPrintProg] = useState(0)
-  const [thanksSec, setThanksSec] = useState(10)
+  const [downloadUrl, setDownloadUrl] = useState<string>('')
+  const [isUploading, setIsUploading] = useState<boolean>(false)
+  const [uploadError, setUploadError] = useState<string>('')
   const [adminTab, setAdminTab] = useState<AdminTab>('settings')
   const [cdSetting, setCdSetting] = useState<3 | 5 | 7>(3)
   const [soundOn, setSoundOn] = useState(true)
@@ -577,7 +580,9 @@ export default function App() {
     setReviewTab('filters')
     setComposedDataUrl('')
     setPrintProg(0)
-    setThanksSec(10)
+    setDownloadUrl('')
+    setIsUploading(false)
+    setUploadError('')
     setLastThumb(null)
     setCameraError(null)
     setActiveCameraLabel('Camera')
@@ -678,23 +683,6 @@ export default function App() {
     }, 60)
     return () => window.clearInterval(timer)
   }, [screen])
-
-  useEffect(() => {
-    if (screen !== 'thanks') return
-    setThanksSec(10)
-    const id = window.setInterval(() => {
-      setThanksSec((s) => {
-        if (s <= 1) {
-          reset()
-          return 0
-        }
-        return s - 1
-      })
-    }, 1000)
-    return () => {
-      window.clearInterval(id)
-    }
-  }, [screen, reset])
 
   const capturePhoto = useCallback(() => {
     if (demoMode) return genPlaceholder(photoIdx)
@@ -820,10 +808,12 @@ export default function App() {
     reset()
   }
 
-  const goPrint = () => {
+  const handlePrint = async () => {
     if (!selectedFrame) return
-    void (async () => {
-      const url = await composeImage(
+    setIsUploading(true)
+    setUploadError('')
+    try {
+      const composed = await composeImage(
         selectedFrame,
         activePhotos,
         filterCss,
@@ -832,13 +822,23 @@ export default function App() {
         eventName,
         true,
       )
-      void fetch('/api/print', {
+      const response = await fetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: url }),
-      }).catch(() => {})
+        body: JSON.stringify({
+          imageData: composed,
+          sessionId: Date.now().toString(),
+        }),
+      })
+      if (!response.ok) throw new Error('Upload failed')
+      const data = (await response.json()) as { downloadUrl?: string }
+      setDownloadUrl(data.downloadUrl ?? '')
+      setIsUploading(false)
       setScreen('printing')
-    })()
+    } catch {
+      setUploadError('Could not upload photo. Check your connection.')
+      setIsUploading(false)
+    }
   }
 
   const downloadComposed = () => {
@@ -1720,15 +1720,29 @@ export default function App() {
             <div className="space-y-2 border-t border-gray-100 p-3">
               <button
                 type="button"
-                className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl py-3.5 font-semibold text-white shadow-lg"
+                disabled={isUploading}
+                className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl py-3.5 text-base font-bold text-white shadow-lg transition-all active:scale-95"
                 style={{
-                  background: `linear-gradient(135deg, ${CORAL}, #ff8787)`,
+                  background: 'linear-gradient(135deg, #FF6B6B, #FF8E8E)',
+                  opacity: isUploading ? 0.7 : 1,
                 }}
-                onClick={goPrint}
+                onClick={() => void handlePrint()}
               >
-                <Printer className="h-5 w-5" />
-                PRINT
+                {isUploading ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Uploading...
+                  </>
+                ) : (
+                  <>
+                    <Printer size={20} />
+                    PRINT
+                  </>
+                )}
               </button>
+              {uploadError ? (
+                <p className="mt-1 text-center text-xs text-red-400">{uploadError}</p>
+              ) : null}
               <button
                 type="button"
                 className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border border-gray-200 py-3 font-medium text-gray-700"
@@ -1806,14 +1820,37 @@ export default function App() {
             Grab your photo!
           </h2>
           <p className="mb-6 text-lg text-gray-600">{eventName}</p>
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-3 flex aspect-square w-full items-center justify-center rounded-xl bg-gray-200 text-center text-sm text-gray-500">
-              Scan for digital gallery
-            </div>
-            <p className="text-center text-sm text-gray-500">
-              Returning in {thanksSec}s…
-            </p>
+          <div className="mb-8 inline-block rounded-2xl bg-white p-5 shadow-xl">
+            {downloadUrl ? (
+              <>
+                <QRCodeSVG
+                  value={downloadUrl}
+                  size={180}
+                  bgColor="#FFFFFF"
+                  fgColor="#333333"
+                  level="M"
+                  includeMargin={true}
+                />
+                <p className="mt-2 text-center text-xs text-gray-400">
+                  Scan to download your photo
+                </p>
+              </>
+            ) : (
+              <div className="flex h-44 w-44 items-center justify-center rounded-xl bg-gray-100">
+                <p className="px-4 text-center text-xs text-gray-400">
+                  QR code unavailable
+                </p>
+              </div>
+            )}
           </div>
+          <button
+            type="button"
+            onClick={() => reset()}
+            className="rounded-full px-14 py-4 text-xl font-bold text-white shadow-lg transition-all active:scale-95"
+            style={{ background: 'linear-gradient(135deg, #FF6B6B, #FF8E8E)' }}
+          >
+            Done ✓
+          </button>
         </div>
       )}
 

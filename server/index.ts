@@ -2,6 +2,16 @@ import path from 'path'
 import fs from 'fs'
 import express from 'express'
 import cors from 'cors'
+import { v2 as cloudinary } from 'cloudinary'
+import * as dotenv from 'dotenv'
+
+dotenv.config()
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+})
 
 const app = express()
 const PORT = 3001
@@ -58,6 +68,37 @@ app.get('/api/gallery/:slug', (_req, res) => {
     url: `/uploads/${encodeURIComponent(name)}`,
   }))
   res.json({ slug: _req.params.slug, items: list })
+})
+
+app.post('/api/upload', async (req, res) => {
+  try {
+    const { imageData, sessionId } = req.body
+    if (!imageData) return res.status(400).json({ error: 'No image data provided' })
+    const result = await cloudinary.uploader.upload(imageData, {
+      folder: 'photobooth',
+      public_id: `session-${sessionId || Date.now()}`,
+      overwrite: true,
+      resource_type: 'image',
+      format: 'jpg',
+      quality: 90,
+      transformation: [{ width: 1181, height: 1748, crop: 'limit' }],
+    })
+    const downloadUrl = cloudinary.url(result.public_id, {
+      resource_type: 'image',
+      flags: 'attachment',
+      format: 'jpg',
+    })
+    res.json({
+      success: true,
+      publicUrl: result.secure_url,
+      downloadUrl,
+      publicId: result.public_id,
+    })
+  } catch (error: unknown) {
+    console.error('Cloudinary upload error:', error)
+    const message = error instanceof Error ? error.message : 'Upload failed'
+    res.status(500).json({ error: message })
+  }
 })
 
 app.listen(PORT, () => {
