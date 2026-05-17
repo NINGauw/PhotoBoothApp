@@ -823,12 +823,13 @@ export default function App() {
         eventName,
         true,
       )
+      const sessionId = Date.now().toString()
       const response = await fetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           imageData: composed,
-          sessionId: Date.now().toString(),
+          sessionId,
         }),
       })
       const data = (await response.json()) as {
@@ -841,7 +842,16 @@ export default function App() {
       }
       const qrTarget = data.downloadUrl || data.publicUrl || ''
       setDownloadUrl(qrTarget)
-      setIsUploading(false)
+
+      fetch('/api/print', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageData: composed, sessionId }),
+      })
+        .then((r) => r.json())
+        .then((d) => console.log('Print result:', d))
+        .catch((e) => console.warn('Print error (non-blocking):', e))
+
       setScreen('printing')
     } catch (e) {
       setUploadError(
@@ -849,6 +859,7 @@ export default function App() {
           ? e.message
           : 'Could not upload photo. Check your connection.',
       )
+    } finally {
       setIsUploading(false)
     }
   }
@@ -1855,6 +1866,9 @@ export default function App() {
               </div>
             )}
           </div>
+          <p className="mt-4 text-sm text-gray-500">
+            Your photo is being printed...
+          </p>
           <button
             type="button"
             onClick={() => reset()}
