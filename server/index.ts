@@ -1,7 +1,6 @@
 import path from 'path'
 import fs from 'fs'
 import os from 'os'
-import { execFile } from 'child_process'
 import express from 'express'
 import sharp from 'sharp'
 import cors from 'cors'
@@ -21,43 +20,6 @@ cloudinary.config({
 const app = express()
 const PORT = 3001
 const uploadsDir = path.join(root, 'uploads')
-const printScript = path.join(__dirname, 'print-selphy.ps1')
-const PRINTER_NAME = 'Canon SELPHY CP1500'
-
-function printImage(filePath: string, printerName: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-File',
-        printScript,
-        '-ImagePath',
-        filePath,
-        '-PrinterName',
-        printerName,
-      ],
-      { timeout: 60000, windowsHide: true },
-      (error, stdout, stderr) => {
-        const out = stdout?.trim() ?? ''
-        const err = stderr?.trim() ?? ''
-        if (out) console.log(out)
-        if (err) console.error('Print stderr:', err)
-        if (error) {
-          reject(new Error(err || error.message))
-          return
-        }
-        if (err && /error|exception|cannot find type/i.test(err)) {
-          reject(new Error(err))
-          return
-        }
-        resolve(out || 'Print job sent')
-      },
-    )
-  })
-}
 
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
@@ -71,15 +33,25 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
-app.post('/api/print', async (req, res) => {
+app.post('/api/save-print', async (req, res) => {
   try {
-    const { imageData, sessionId } = req.body
+    const { imageData, sessionId, outputFolder } = req.body
     if (!imageData) return res.status(400).json({ error: 'No image data' })
+
+    const folder =
+      outputFolder ||
+      path.join(os.homedir(), 'Desktop', 'PhotoBooth_Prints')
+
+    if (!fs.existsSync(folder)) {
+      fs.mkdirSync(folder, { recursive: true })
+    }
 
     const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '')
     const buffer = Buffer.from(base64Data, 'base64')
 
-    const tmpFile = path.join(os.tmpdir(), `photobooth-${sessionId || Date.now()}.jpg`)
+    const filename = `photobooth-${sessionId || Date.now()}.jpg`
+    const filePath = path.join(folder, filename)
+
     await sharp(buffer)
       .resize(1181, 1748, {
         fit: 'contain',
@@ -87,15 +59,13 @@ app.post('/api/print', async (req, res) => {
       })
       .jpeg({ quality: 98 })
       .withMetadata({ density: 300 })
-      .toFile(tmpFile)
+      .toFile(filePath)
 
-    const message = await printImage(tmpFile, PRINTER_NAME)
-    setTimeout(() => fs.unlink(tmpFile, () => {}), 15000)
-    console.log(message)
-    res.json({ success: true, message })
+    console.log(`✅ Photo saved: ${filePath}`)
+    res.json({ success: true, filePath, filename })
   } catch (err: unknown) {
-    console.error('Print endpoint error:', err)
-    const message = err instanceof Error ? err.message : 'Print failed'
+    console.error('Save error:', err)
+    const message = err instanceof Error ? err.message : 'Save failed'
     res.status(500).json({ error: message })
   }
 })

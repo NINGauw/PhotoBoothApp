@@ -523,6 +523,7 @@ export default function App() {
   const [autoRunning, setAutoRunning] = useState(false)
   const [autoDone, setAutoDone] = useState(false)
   const [allowRetake, setAllowRetake] = useState(true)
+  const [printFolder, setPrintFolder] = useState<string>('')
   const [boothSettingsOpen, setBoothSettingsOpen] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -812,7 +813,6 @@ export default function App() {
     if (!selectedFrame) return
     setIsUploading(true)
     setUploadError('')
-    setDownloadUrl('')
     try {
       const composed = await composeImage(
         selectedFrame,
@@ -823,42 +823,33 @@ export default function App() {
         eventName,
         true,
       )
-      const sessionId = Date.now().toString()
-      const response = await fetch('/api/upload', {
+      const sid = Date.now().toString()
+
+      const saveRes = await fetch('/api/save-print', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           imageData: composed,
-          sessionId,
+          sessionId: sid,
+          outputFolder: printFolder || '',
         }),
       })
-      const data = (await response.json()) as {
-        downloadUrl?: string
-        publicUrl?: string
-        error?: string
-      }
-      if (!response.ok) {
-        throw new Error(data.error || 'Upload failed')
-      }
-      const qrTarget = data.downloadUrl || data.publicUrl || ''
-      setDownloadUrl(qrTarget)
+      if (!saveRes.ok) throw new Error('Save failed')
 
-      fetch('/api/print', {
+      fetch('/api/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageData: composed, sessionId }),
+        body: JSON.stringify({ imageData: composed, sessionId: sid }),
       })
         .then((r) => r.json())
-        .then((d) => console.log('Print result:', d))
-        .catch((e) => console.warn('Print error (non-blocking):', e))
+        .then((d: { downloadUrl?: string }) => {
+          if (d.downloadUrl) setDownloadUrl(d.downloadUrl)
+        })
+        .catch((e) => console.warn('Cloudinary upload error (non-blocking):', e))
 
       setScreen('printing')
-    } catch (e) {
-      setUploadError(
-        e instanceof Error && e.message
-          ? e.message
-          : 'Could not upload photo. Check your connection.',
-      )
+    } catch {
+      setUploadError('Could not save photo. Check server connection.')
     } finally {
       setIsUploading(false)
     }
@@ -1018,6 +1009,26 @@ export default function App() {
                       />
                     </label>
                   </div>
+                </div>
+                <div className="mt-5 border-t border-gray-200 pt-5">
+                  <div className="mb-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      Print Output Folder
+                    </p>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      Folder where photos are saved when PRINT is pressed
+                    </p>
+                  </div>
+                  <input
+                    type="text"
+                    value={printFolder}
+                    onChange={(e) => setPrintFolder(e.target.value)}
+                    placeholder="Leave blank to use Desktop/PhotoBooth_Prints"
+                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 placeholder:text-gray-400 focus:border-[#FF6B6B] focus:outline-none focus:ring-1 focus:ring-[#FF6B6B]/30"
+                  />
+                  <p className="mt-1 text-xs text-gray-400">
+                    Example: C:\Users\YourName\Desktop\PrintQueue
+                  </p>
                 </div>
               </div>
             </div>
@@ -1754,7 +1765,7 @@ export default function App() {
                 {isUploading ? (
                   <>
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    Uploading...
+                    Saving...
                   </>
                 ) : (
                   <>
