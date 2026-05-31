@@ -88,6 +88,85 @@ app.get('/api/gallery/:slug', (_req, res) => {
   res.json({ slug: _req.params.slug, items: list })
 })
 
+// Scan folder for PNG frames — JSON optional sidecar
+app.get('/api/frames', (req, res) => {
+  try {
+    const folder = (req.query.folder as string) || ''
+    if (!folder || !fs.existsSync(folder)) {
+      return res.json({ success: true, frames: [] })
+    }
+
+    const VALID_LAYOUTS = ['strip4', 'strip3', 'single', 'grid4']
+    const files = fs.readdirSync(folder)
+    const pngFiles = files.filter((f) => f.toLowerCase().endsWith('.png'))
+    const frames: Record<string, unknown>[] = []
+
+    for (const png of pngFiles) {
+      try {
+        const base = png.replace(/\.png$/i, '')
+
+        let cfg: {
+          name?: string
+          layout?: string
+          color?: string
+          showBranding?: boolean
+        } = {}
+        const jsonName = files.find(
+          (f) => f.toLowerCase() === `${base}.json`.toLowerCase(),
+        )
+        if (jsonName) {
+          try {
+            cfg = JSON.parse(
+              fs.readFileSync(path.join(folder, jsonName), 'utf-8'),
+            )
+          } catch {
+            cfg = {}
+          }
+        }
+
+        let layout = cfg.layout
+        if (!layout || !VALID_LAYOUTS.includes(layout)) {
+          const lower = base.toLowerCase()
+          layout = VALID_LAYOUTS.find((l) => lower.includes(l)) || 'strip4'
+        }
+
+        let name = cfg.name
+        if (!name) {
+          name = base
+            .replace(new RegExp(layout, 'i'), '')
+            .replace(/[_\-]+/g, ' ')
+            .trim()
+          if (!name) name = base
+          name = name.replace(/\b\w/g, (c) => c.toUpperCase())
+        }
+
+        const pngBuffer = fs.readFileSync(path.join(folder, png))
+        const overlay = `data:image/png;base64,${pngBuffer.toString('base64')}`
+
+        frames.push({
+          id: `custom-${base}`,
+          name,
+          layout,
+          color: cfg.color || '#333333',
+          showBranding: cfg.showBranding === true,
+          overlay,
+          custom: true,
+        })
+      } catch {
+        console.warn(`Skip invalid frame: ${png}`)
+      }
+    }
+
+    console.log(`✅ Loaded ${frames.length} custom frames from ${folder}`)
+    res.json({ success: true, frames })
+  } catch (err: unknown) {
+    console.error('Frame load error:', err)
+    const message =
+      err instanceof Error ? err.message : 'Failed to load frames'
+    res.status(500).json({ error: message })
+  }
+})
+
 app.post('/api/upload', async (req, res) => {
   try {
     const { imageData, sessionId } = req.body

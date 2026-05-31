@@ -76,12 +76,16 @@ type Slot = { x: number; y: number; w: number; h: number }
 type Frame = {
   id: string
   name: string
-  desc: string
+  desc?: string
   photos: number
   dup: boolean
   color: string
   slots: Slot[]
   brandY: number
+  custom?: boolean
+  overlay?: string
+  showBranding?: boolean
+  layout?: string
 }
 
 const FRAMES: Frame[] = [
@@ -323,6 +327,7 @@ async function composeImage(
   flipped: boolean[],
   eventName: string,
   includeStickers = true,
+  overlayCache?: Map<string, HTMLImageElement>,
 ): Promise<string> {
   const CW = CANVAS_W
   const CH = CANVAS_H
@@ -330,23 +335,14 @@ async function composeImage(
   canvas.width = CW
   canvas.height = CH
   const ctx = canvas.getContext('2d')!
+  const isCustom = frame.custom === true
 
   ctx.fillStyle = '#FFFFFF'
   ctx.fillRect(0, 0, CW, CH)
 
   const stripW = frame.dup ? STRIP_W : CANVAS_W
-  const drawStrip = (ox: number) => {
-    ctx.strokeStyle = frame.color
-    ctx.lineWidth = 5
-    pathRoundedRect(ctx, ox + 12, 12, stripW - 24, CH - 24, 16)
-    ctx.stroke()
 
-    frame.slots.forEach((s) => {
-      ctx.fillStyle = '#F5F5F5'
-      pathRoundedRect(ctx, s.x + ox, s.y, s.w, s.h, 8)
-      ctx.fill()
-    })
-
+  const drawBranding = (ox: number) => {
     ctx.fillStyle = frame.color
     ctx.font = 'bold 28px system-ui'
     ctx.textAlign = 'center'
@@ -359,8 +355,24 @@ async function composeImage(
       frame.brandY + 52,
     )
   }
-  drawStrip(0)
-  if (frame.dup) drawStrip(STRIP_DUP_OFFSET)
+
+  const drawDecoration = (ox: number) => {
+    ctx.strokeStyle = frame.color
+    ctx.lineWidth = 5
+    pathRoundedRect(ctx, ox + 12, 12, stripW - 24, CH - 24, 16)
+    ctx.stroke()
+
+    frame.slots.forEach((s) => {
+      ctx.fillStyle = '#F5F5F5'
+      pathRoundedRect(ctx, s.x + ox, s.y, s.w, s.h, 8)
+      ctx.fill()
+    })
+  }
+
+  if (!isCustom) {
+    drawDecoration(0)
+    if (frame.dup) drawDecoration(STRIP_DUP_OFFSET)
+  }
 
   const loadImg = (src: string) =>
     new Promise<HTMLImageElement>((res, rej) => {
@@ -411,6 +423,18 @@ async function composeImage(
   drawSlots(0)
   if (frame.dup) drawSlots(STRIP_DUP_OFFSET)
 
+  if (isCustom && overlayCache) {
+    const overlayImg = overlayCache.get(frame.id)
+    if (overlayImg && overlayImg.complete) {
+      ctx.drawImage(overlayImg, 0, 0, CW, CH)
+    }
+  }
+
+  if (!isCustom || frame.showBranding) {
+    drawBranding(0)
+    if (frame.dup) drawBranding(STRIP_DUP_OFFSET)
+  }
+
   if (includeStickers) {
     stickers.forEach((st) => {
       ctx.filter = 'none'
@@ -426,7 +450,7 @@ async function composeImage(
 
 function FrameLayoutPreview({ frame }: { frame: Frame }) {
   const scale = 0.045
-  if (frame.id === 'single') {
+  if (frame.slots.length === 1) {
     return (
       <div
         className="flex h-24 w-full items-center justify-center rounded-lg bg-gray-50 p-2"
@@ -443,7 +467,7 @@ function FrameLayoutPreview({ frame }: { frame: Frame }) {
       </div>
     )
   }
-  if (frame.id === 'grid4') {
+  if (frame.slots.length === 4 && !frame.dup) {
     return (
       <div
         className="grid h-24 w-full grid-cols-2 gap-1 rounded-lg bg-gray-50 p-2"
@@ -524,10 +548,13 @@ export default function App() {
   const [autoDone, setAutoDone] = useState(false)
   const [allowRetake, setAllowRetake] = useState(true)
   const [printFolder, setPrintFolder] = useState<string>('')
+  const [customFramesFolder, setCustomFramesFolder] = useState<string>('')
+  const [customFrames, setCustomFrames] = useState<Frame[]>([])
   const [boothSettingsOpen, setBoothSettingsOpen] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const overlayCache = useRef<Map<string, HTMLImageElement>>(new Map())
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
   const stickerOverlayRef = useRef<HTMLDivElement>(null)
@@ -551,6 +578,53 @@ export default function App() {
 
   const filterCss =
     FILTERS.find((f) => f.id === filterId)?.css ?? 'none'
+
+  const allFrames = [...FRAMES, ...customFrames]
+
+  const loadCustomFrames = async () => {
+    if (!customFramesFolder) {
+      setCustomFrames([])
+      return
+    }
+    try {
+      const res = await fetch(
+        `http://localhost:3001/api/frames?folder=${encodeURIComponent(customFramesFolder)}`,
+      )
+      const data = await res.json()
+      if (!data.success) return
+
+      const built = (data.frames as Frame[])
+        .map((cf) => {
+          const base = FRAMES.find((f) => f.id === cf.layout)
+          if (!base) return null
+          return {
+            ...cf,
+            photos: base.photos,
+            dup: base.dup,
+            slots: base.slots,
+            brandY: base.brandY,
+          } as Frame
+        })
+        .filter((f): f is Frame => f !== null)
+
+      for (const cf of built) {
+        if (!overlayCache.current.has(cf.id)) {
+          const img = new Image()
+          img.src = cf.overlay!
+          overlayCache.current.set(cf.id, img)
+        }
+      }
+
+      setCustomFrames(built)
+    } catch (e) {
+      console.warn('Load custom frames error:', e)
+    }
+  }
+
+  useEffect(() => {
+    void loadCustomFrames()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customFramesFolder])
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -660,6 +734,7 @@ export default function App() {
       flipped,
       eventName,
       false,
+      overlayCache.current,
     ).then((url) => {
       if (!cancelled) setComposedDataUrl(url)
     })
@@ -822,6 +897,7 @@ export default function App() {
         flipped,
         eventName,
         true,
+        overlayCache.current,
       )
       const sid = Date.now().toString()
 
@@ -866,6 +942,7 @@ export default function App() {
         flipped,
         eventName,
         true,
+        overlayCache.current,
       )
       const a = document.createElement('a')
       a.href = url
@@ -1030,6 +1107,33 @@ export default function App() {
                     Example: C:\Users\YourName\Desktop\PrintQueue
                   </p>
                 </div>
+                <div className="mt-5 border-t border-gray-200 pt-5">
+                  <div className="mb-1">
+                    <p className="text-sm font-medium text-gray-900">
+                      Custom Frames Folder
+                    </p>
+                    <p className="mt-0.5 text-xs text-gray-500">
+                      Folder chứa frame PNG + JSON config
+                    </p>
+                  </div>
+                  <input
+                    type="text"
+                    value={customFramesFolder}
+                    onChange={(e) => setCustomFramesFolder(e.target.value)}
+                    placeholder="Vd: C:\Users\YourName\Desktop\Frames"
+                    className="mt-2 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 placeholder:text-gray-400 focus:border-[#FF6B6B] focus:outline-none focus:ring-1 focus:ring-[#FF6B6B]/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void loadCustomFrames()}
+                    className="mt-2 rounded-lg bg-gray-100 px-4 py-2 text-xs font-medium text-gray-800 transition active:scale-95 hover:bg-gray-200"
+                  >
+                    🔄 Reload Frames
+                  </button>
+                  <p className="mt-1 text-xs text-gray-400">
+                    {customFrames.length} custom frame(s) loaded
+                  </p>
+                </div>
               </div>
             </div>
           ) : null}
@@ -1098,7 +1202,7 @@ export default function App() {
           </header>
           <div className="flex-1 overflow-y-auto p-4">
             <div className="mx-auto grid max-w-4xl grid-cols-1 gap-4 sm:grid-cols-2">
-              {FRAMES.map((f) => (
+              {allFrames.map((f) => (
                 <button
                   key={f.id}
                   type="button"
